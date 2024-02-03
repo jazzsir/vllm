@@ -111,12 +111,14 @@ class LLM:
 
     def get_tokenizer(
             self) -> Union[PreTrainedTokenizer, PreTrainedTokenizerFast]:
+        print("HBSEO get_tokenizer")
         return self.llm_engine.tokenizer
 
     def set_tokenizer(
         self,
         tokenizer: Union[PreTrainedTokenizer, PreTrainedTokenizerFast],
     ) -> None:
+        print("HBSEO set_tokenizer")
         self.llm_engine.tokenizer = tokenizer
 
     def generate(
@@ -128,6 +130,7 @@ class LLM:
         use_tqdm: bool = True,
         lora_request: Optional[LoRARequest] = None,
     ) -> List[RequestOutput]:
+        print("HBSEO generate")
         """Generates the completions for the input prompts.
 
         NOTE: This class automatically batches the given prompts, considering
@@ -189,6 +192,7 @@ class LLM:
         lora_request: Optional[LoRARequest] = None,
         prefix_pos: Optional[int] = None,
     ) -> None:
+        print("HBSEO _add_request")
         request_id = str(next(self.request_counter))
         self.llm_engine.add_request(request_id,
                                     prompt,
@@ -198,6 +202,7 @@ class LLM:
                                     prefix_pos=prefix_pos)
 
     def _run_engine(self, use_tqdm: bool) -> List[RequestOutput]:
+        print("HBSEO _run_engine")
         # Initialize tqdm.
         if use_tqdm:
             num_requests = self.llm_engine.get_num_unfinished_requests()

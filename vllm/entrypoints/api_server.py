@@ -19,6 +19,7 @@ engine = None
 @app.get("/health")
 async def health() -> Response:
     """Health check."""
+    print("HBSEO async health")
     return Response(status_code=200)
 
 
@@ -31,6 +32,7 @@ async def generate(request: Request) -> Response:
     - stream: whether to stream the results or not.
     - other fields: the sampling parameters (See `SamplingParams` for details).
     """
+    print("HBSEO async generate")
     request_dict = await request.json()
     prompt = request_dict.pop("prompt")
     prefix_pos = request_dict.pop("prefix_pos", None)
@@ -45,6 +47,7 @@ async def generate(request: Request) -> Response:
 
     # Streaming case
     async def stream_results() -> AsyncGenerator[bytes, None]:
+        print("HBSEO async  stream_results")
         async for request_output in results_generator:
             prompt = request_output.prompt
             text_outputs = [
@@ -85,6 +88,8 @@ if __name__ == "__main__":
         help="FastAPI root_path when app is behind a path based routing proxy")
     parser = AsyncEngineArgs.add_cli_args(parser)
     args = parser.parse_args()
+
+    print("HBSEO async")
 
     engine_args = AsyncEngineArgs.from_cli_args(args)
     engine = AsyncLLMEngine.from_engine_args(engine_args)

@@ -387,6 +387,7 @@ class LLMEngine:
         lora_request: Optional[LoRARequest] = None,
         prefix_pos: Optional[int] = None,
     ) -> None:
+        print("HBSEO [llm_engine] add_request")
         """Add a request to the engine's request pool.
 
         The request is added to the request pool and will be processed by the
@@ -462,6 +463,7 @@ class LLMEngine:
         self.scheduler.add_seq_group(seq_group)
 
     def abort_request(self, request_id: Union[str, Iterable[str]]) -> None:
+        print("HBSEO [llm_engine] abort_request")
         """Aborts a request(s) with the given ID.
 
         Args:
@@ -482,14 +484,17 @@ class LLMEngine:
 
     def get_model_config(self) -> ModelConfig:
         """Gets the model configuration."""
+        print("HBSEO [llm_engine] get_model_config")
         return self.model_config
 
     def get_num_unfinished_requests(self) -> int:
         """Gets the number of unfinished requests."""
+        print("HBSEO [llm_engine] get_num_unfinished_requests")
         return self.scheduler.get_num_unfinished_seq_groups()
 
     def has_unfinished_requests(self) -> bool:
         """Returns True if there are unfinished requests."""
+        print("HBSEO [llm_engine] has_unfinished_requests")
         return self.scheduler.has_unfinished_seqs()
 
     def _check_beam_search_early_stopping(
@@ -499,6 +504,7 @@ class LLMEngine:
         best_running_seq: Sequence,
         current_worst_seq: Sequence,
     ) -> bool:
+        print("HBSEO [llm_engine] _check_beam_search_early_stopping")
         assert sampling_params.use_beam_search
         length_penalty = sampling_params.length_penalty
         if early_stopping is True:
@@ -543,6 +549,7 @@ class LLMEngine:
     def _process_sequence_group_outputs(self, seq_group: SequenceGroup,
                                         outputs: SequenceGroupOutput) -> None:
 
+        print("HBSEO [llm_engine] _process_sequence_group_outputs")
         # Process prompt logprobs
         prompt_logprobs = outputs.prompt_logprobs
         if prompt_logprobs is not None:
@@ -716,6 +723,7 @@ class LLMEngine:
             self, output: SamplerOutput,
             scheduler_outputs: SchedulerOutputs) -> List[RequestOutput]:
         # Update the scheduled sequence groups with the model outputs.
+        print("HBSEO [llm_engine] _process_model_outputs")
         scheduled_seq_groups = scheduler_outputs.scheduled_seq_groups
         for seq_group, outputs in zip(scheduled_seq_groups, output):
             self._process_sequence_group_outputs(seq_group, outputs)
@@ -795,6 +803,7 @@ class LLMEngine:
             >>>     if not (engine.has_unfinished_requests() or example_inputs):
             >>>         break
         """
+        print("HBSEO [llm_engine] step")
         seq_group_metadata_list, scheduler_outputs = self.scheduler.schedule()
 
         if not scheduler_outputs.is_empty():
@@ -817,12 +826,14 @@ class LLMEngine:
 
     def do_log_stats(self) -> None:
         """Forced log when no requests active."""
+        print("HBSEO [llm_engine] do_log_stats")
         if self.log_stats:
             self.stat_logger.log(self._get_stats(scheduler_outputs=None))
 
     def _get_stats(self,
                    scheduler_outputs: Optional[SchedulerOutputs]) -> Stats:
         """Get Stats to be Logged to Prometheus."""
+        print("HBSEO [llm_engine] _get_stats")
         now = time.monotonic()
 
         # KV Cache Usage in %.
@@ -895,6 +906,7 @@ class LLMEngine:
              skip_special_tokens=prms.skip_special_tokens,
              spaces_between_special_tokens=prms.spaces_between_special_tokens,
          )
+        print("HBSEO [llm_engine] _decode_sequence")
         if seq.tokens is None:
             seq.tokens = new_tokens
         else:
@@ -905,6 +917,7 @@ class LLMEngine:
 
     def _check_stop(self, seq: Sequence,
                     sampling_params: SamplingParams) -> None:
+        print("HBSEO [llm_engine] _check_stop")
         """Stop the finished sequences."""
         for stop_str in sampling_params.stop:
             if seq.output_text.endswith(stop_str):
@@ -935,6 +948,7 @@ class LLMEngine:
             return
 
     def add_lora(self, lora_request: LoRARequest) -> bool:
+        print("HBSEO [llm_engine] add_lora")
         assert lora_request.lora_int_id > 0, "lora_id must be greater than 0."
         return self._run_workers(
             "add_lora",
@@ -942,6 +956,7 @@ class LLMEngine:
         )
 
     def remove_lora(self, lora_id: int) -> bool:
+        print("HBSEO [llm_engine] remove_lora")
         assert lora_id > 0, "lora_id must be greater than 0."
         return self._run_workers(
             "remove_lora",
@@ -949,6 +964,7 @@ class LLMEngine:
         )
 
     def list_loras(self) -> List[int]:
+        print("HBSEO [llm_engine] list_loras")
         return self._run_workers("list_loras")
 
     def _run_workers(
@@ -960,6 +976,7 @@ class LLMEngine:
         max_concurrent_workers: Optional[int] = None,
         **kwargs,
     ) -> Any:
+        print("HBSEO [llm_engine] _run_workers")
         """Runs the given method on all workers."""
 
         if max_concurrent_workers:
