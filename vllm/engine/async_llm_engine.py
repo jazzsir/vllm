@@ -22,6 +22,7 @@ class AsyncEngineDeadError(RuntimeError):
 
 def _raise_exception_on_finish(task: asyncio.Task,
                                request_tracker: "RequestTracker") -> None:
+    print("HBSEO [async_llm_engine AsyncEngineDeadError] _raise_exception_on_finish")
     msg = ("Task finished unexpectedly. This should never happen! "
            "Please open an issue on Github.")
     try:
@@ -43,27 +44,33 @@ class AsyncStream:
     iterated over asynchronously."""
 
     def __init__(self, request_id: str) -> None:
+        print("HBSEO [async_llm_engine AsyncStream] __init__")
         self.request_id = request_id
         self._queue = asyncio.Queue()
         self._finished = False
 
     def put(self, item: RequestOutput) -> None:
+        print("HBSEO [async_llm_engine AsyncStream] print")
         if self._finished:
             return
         self._queue.put_nowait(item)
 
     def finish(self) -> None:
+        print("HBSEO [async_llm_engine AsyncStream] print")
         self._queue.put_nowait(StopAsyncIteration())
         self._finished = True
 
     @property
     def finished(self) -> bool:
+        print("HBSEO [async_llm_engine AsyncStream] print")
         return self._finished
 
     def __aiter__(self):
+        print("HBSEO [async_llm_engine AsyncStream] print")
         return self
 
     async def __anext__(self) -> RequestOutput:
+        print("HBSEO [async_llm_engine AsyncStream] __anext__")
         result = await self._queue.get()
         if isinstance(result, Exception):
             raise result
@@ -74,6 +81,7 @@ class RequestTracker:
     """Synchronous abstraction for tracking requests."""
 
     def __init__(self) -> None:
+        print("HBSEO [async_llm_engine RequestTracker] __init__")
         self._request_streams: Dict[str, AsyncStream] = {}
         self._finished_requests: asyncio.Queue[str] = asyncio.Queue()
         self._new_requests: asyncio.Queue[Tuple[AsyncStream,
@@ -81,14 +89,17 @@ class RequestTracker:
         self.new_requests_event = None
 
     def __contains__(self, item):
+        print("HBSEO [async_llm_engine RequestTracker] __contains__")
         return item in self._request_streams
 
     def init_event(self):
+        print("HBSEO [async_llm_engine RequestTracker] init_event")
         self.new_requests_event = asyncio.Event()
 
     def propagate_exception(self,
                             exc: Exception,
                             request_id: Optional[str] = None) -> None:
+        print("HBSEO [async_llm_engine RequestTracker] propagate_exception")
         """Propagate an exception to request streams
         (all if request_id is None)."""
         if request_id is not None:
@@ -101,6 +112,7 @@ class RequestTracker:
                                request_output: RequestOutput,
                                *,
                                verbose: bool = False) -> None:
+        print("HBSEO [async_llm_engine RequestTracker] process_request_output")
         """Process a request output from the engine."""
         request_id = request_output.request_id
 
@@ -112,6 +124,7 @@ class RequestTracker:
 
     def add_request(self, request_id: str,
                     **engine_add_request_kwargs) -> AsyncStream:
+        print("HBSEO [async_llm_engine RequestTracker] add_request")
         """Add a request to be sent to the engine on the next background
         loop iteration."""
         if request_id in self._request_streams:
@@ -128,6 +141,7 @@ class RequestTracker:
         return stream
 
     def abort_request(self, request_id: str, *, verbose: bool = False) -> None:
+        print("HBSEO [async_llm_engine RequestTracker] abort_request")
         """Abort a request during next background loop iteration."""
         if verbose:
             logger.info(f"Aborted request {request_id}.")
@@ -142,6 +156,7 @@ class RequestTracker:
         self._request_streams[request_id].finish()
 
     def get_new_and_finished_requests(self) -> Tuple[List[Dict], Set[str]]:
+        print("HBSEO [async_llm_engine RequestTracker] get_new_and_finished_requests")
         """Get the new requests and finished requests to be
         sent to the engine."""
         new_requests: List[Dict] = []
@@ -173,6 +188,7 @@ class _AsyncLLMEngine(LLMEngine):
     """Extension of LLMEngine to add async methods."""
 
     async def step_async(self) -> List[RequestOutput]:
+        print("HBSEO [async_llm_engine _AsyncLLMEngine] step_async")
         """Performs one decoding iteration and returns newly generated results.
         The workers are ran asynchronously if possible.
 
@@ -209,6 +225,7 @@ class _AsyncLLMEngine(LLMEngine):
         prompt_token_ids: Optional[List[int]] = None,
         lora_request: Optional[LoRARequest] = None,
     ):
+        print("HBSEO [async_llm_engine _AsyncLLMEngine] encode_request_async")
         if prompt_token_ids is None:
             assert prompt is not None
             prompt_token_ids = await self.tokenizer.encode_async(
@@ -227,6 +244,7 @@ class _AsyncLLMEngine(LLMEngine):
         lora_request: Optional[LoRARequest] = None,
         prefix_pos: Optional[int] = None,
     ) -> None:
+        print("HBSEO [async_llm_engine _AsyncLLMEngine] add_request_async")
         if lora_request is not None and not self.lora_config:
             raise ValueError(f"Got lora_request {lora_request} but LoRA is "
                              "not enabled!")
@@ -256,6 +274,7 @@ class _AsyncLLMEngine(LLMEngine):
         driver_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs,
     ) -> Any:
+        print("HBSEO [async_llm_engine _AsyncLLMEngine] _run_workers_async")
         """Runs the given method on all workers."""
         coros = []
 
@@ -314,6 +333,7 @@ class AsyncLLMEngine:
                  max_log_len: Optional[int] = None,
                  start_engine_loop: bool = True,
                  **kwargs) -> None:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] __init__")
         self.worker_use_ray = worker_use_ray
         self.engine_use_ray = engine_use_ray
         self.log_requests = log_requests
@@ -330,10 +350,12 @@ class AsyncLLMEngine:
 
     @property
     def is_running(self) -> bool:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] is_running")
         return (self.background_loop is not None
                 and not self.background_loop.done())
 
     def start_background_loop(self) -> None:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] start_background_loop")
         """Start the background loop."""
         if self.is_running:
             raise RuntimeError("Background loop is already running.")
@@ -348,6 +370,7 @@ class AsyncLLMEngine:
 
     def _init_engine(self, *args,
                      **kwargs) -> Union[_AsyncLLMEngine, "ray.ObjectRef"]:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] _init_engine")
         if not self.engine_use_ray:
             engine_class = self._engine_class
         elif self.worker_use_ray:
@@ -366,6 +389,7 @@ class AsyncLLMEngine:
         return engine_class(*args, **kwargs)
 
     async def engine_step(self) -> bool:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] engine_step")
         """Kick the engine to process the waiting requests.
 
         Returns True if there are in-progress requests."""
@@ -397,12 +421,14 @@ class AsyncLLMEngine:
         return len(request_outputs) > 0
 
     async def _engine_abort(self, request_ids: Iterable[str]):
+        print("HBSEO [async_llm_engine AsyncLLMEngine] _engine_abort")
         if self.engine_use_ray:
             await self.engine.abort_request.remote(request_ids)
         else:
             self.engine.abort_request(request_ids)
 
     async def run_engine_loop(self):
+        print("HBSEO [async_llm_engine AsyncLLMEngine] run_engine_loop")
         # Initialize the RequestTracker here so it uses the right event loop.
         has_requests_in_progress = False
         while True:
@@ -421,6 +447,7 @@ class AsyncLLMEngine:
         lora_request: Optional[LoRARequest] = None,
         prefix_pos: Optional[int] = None,
     ) -> AsyncStream:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] add_request")
         if self.log_requests:
             shortened_prompt = prompt
             shortened_token_ids = prompt_token_ids
@@ -483,6 +510,7 @@ class AsyncLLMEngine:
         lora_request: Optional[LoRARequest] = None,
         prefix_pos: Optional[int] = None,
     ) -> AsyncIterator[RequestOutput]:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] generate")
         """Generate outputs for a request.
 
         Generate outputs for a request. This method is a coroutine. It adds the
@@ -574,6 +602,7 @@ class AsyncLLMEngine:
             raise e
 
     async def abort(self, request_id: str) -> None:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] abort")
         """Abort a request.
 
         Abort a submitted request. If the request is finished or not found,
@@ -592,6 +621,7 @@ class AsyncLLMEngine:
         return self._abort(request_id)
 
     def _abort(self, request_id: str) -> None:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] _abort")
         """Abort a request.
 
         Abort a submitted request. If the request is finished or not found,
@@ -604,6 +634,7 @@ class AsyncLLMEngine:
                                             verbose=self.log_requests)
 
     async def get_model_config(self) -> ModelConfig:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] get_model_config")
         """Get the model configuration of the vLLM engine."""
         if self.engine_use_ray:
             return await self.engine.get_model_config.remote()
@@ -614,6 +645,7 @@ class AsyncLLMEngine:
     def from_engine_args(cls,
                          engine_args: AsyncEngineArgs,
                          start_engine_loop: bool = True) -> "AsyncLLMEngine":
+        print("HBSEO [async_llm_engine AsyncLLMEngine] from_engine_args")
         """Creates an async LLM engine from the engine arguments."""
         # Create the engine configs.
         engine_configs = engine_args.create_engine_configs()
@@ -633,6 +665,7 @@ class AsyncLLMEngine:
         return engine
 
     async def do_log_stats(self) -> None:
+        print("HBSEO [async_llm_engine AsyncLLMEngine] do_log_stats")
         if self.engine_use_ray:
             await self.engine.do_log_stats.remote()
         else:
