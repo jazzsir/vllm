@@ -117,6 +117,8 @@ def parse_args():
         "If a class is provided, vLLM will add it to the server using app.add_middleware(). "
     )
 
+    print("HBSEO [openai/api_server] parse_args")
+
     parser = AsyncEngineArgs.add_cli_args(parser)
     return parser.parse_args()
 
@@ -127,18 +129,21 @@ app.add_route("/metrics", metrics)  # Exposes HTTP metrics
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_, exc):
+    print("HBSEO [openai/api_server] validation_exception_handler")
     err = openai_serving_chat.create_error_response(message=str(exc))
     return JSONResponse(err.model_dump(), status_code=HTTPStatus.BAD_REQUEST)
 
 
 @app.get("/health")
 async def health() -> Response:
+    print("HBSEO [openai/api_server] health")
     """Health check."""
     return Response(status_code=200)
 
 
 @app.get("/v1/models")
 async def show_available_models():
+    print("HBSEO [openai/api_server] show_available_models")
     models = await openai_serving_chat.show_available_models()
     return JSONResponse(content=models.model_dump())
 
@@ -146,6 +151,7 @@ async def show_available_models():
 @app.post("/v1/chat/completions")
 async def create_chat_completion(request: ChatCompletionRequest,
                                  raw_request: Request):
+    print("HBSEO [openai/api_server] create_chat_completion")
     generator = await openai_serving_chat.create_chat_completion(
         request, raw_request)
     if isinstance(generator, ErrorResponse):
@@ -160,6 +166,7 @@ async def create_chat_completion(request: ChatCompletionRequest,
 
 @app.post("/v1/completions")
 async def create_completion(request: CompletionRequest, raw_request: Request):
+    print("HBSEO [openai/api_server] create_completion")
     generator = await openai_serving_completion.create_completion(
         request, raw_request)
     if isinstance(generator, ErrorResponse):
