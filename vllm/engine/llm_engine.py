@@ -222,6 +222,79 @@ class LLMEngine:
         """Returns True if there are unfinished requests."""
         return self.scheduler.has_unfinished_seqs()
 
+
+
+
+
+
+
+
+# step: vLLM 엔진의 핵심 동작
+# step 함수는 vLLM 엔진에서 텍스트 생성의 반복(iteration)을 수행하는 핵심 함수입니다.
+# 이 함수가 한 번 호출될 때마다 모든 출력 시퀀스의 단일 호출 사이클이 진행되어,
+# 마치 바퀴가 한 바퀴 굴러가듯 텍스트 생성 과정이 조금씩 전진합니다.
+
+# step 함수의 주요 역할:
+# 1. 스케줄링 (Scheduling)
+#     어떤 요청(request)을 이번 반복에서 처리할지, 그리고 어떤 메모리 작업(스왑·복사 등)이 필요한지 결정
+# 2. 모델 실행 (Model Execution)
+#     결정된 요청들을 워커 노드(worker node)에 분산해 실행하고, 메모리 작업 수행
+# 3. 스케줄러 업데이트 (Scheduler Update)
+#     모델 실행 결과를 바탕으로 스케줄러의 상태를 갱신
+# 4. 디코딩 (Decoding)
+#     새로 생성된 토큰 ID들을 텍스트로 변환
+# 5. 종료 조건 확인 (Stopping)
+#     중지 토큰, 최대 길이 도달 등 종료 조건 충족 여부 확인
+# 6. 정리 (Cleanup)
+#     완료된 요청 그룹과 관련된 메모리 해제
+# 7. 출력 생성 (Output Generation)
+#     생성된 텍스트 및 부가 정보를 포맷에 맞춰 반환
+
+# step 함수의 세부 항목:
+# 1. 스케줄링 (self.scheduler.schedule()):
+#     • 스케줄러가 이번 반복에서 처리할 요청 그룹들의 우선순위를 결정
+#     • scheduler_group_metadata_list:  
+#         - 이번 반복에 실행될 요청 그룹(sequence group)별 메타데이터 리스트  
+#         - 각 그룹에 속한 시퀀스 출력, 사용 중인 메모리 블록 정보 포함  
+#     • scheduler_outputs:  
+#         - 모델 관리자가 수행할 작업 목록을 담은 객체  
+#         - blocks_to_swap_in:   CPU → GPU로 로드할 메모리 블록  
+#         - blocks_to_swap_out:  GPU → CPU로 이동할 메모리 블록  
+#         - blocks_to_copy:      GPU 내부에서 복사할 메모리 블록  
+#     • ignored_seq_groups:  
+#         - 이번 iteration에서 스케줄되지 않은 요청 그룹 리스트
+
+# 2. 모델 실행 (self._run_workers("execute_model", ...)):
+#     • run_workers가 워커 노드에 execute_model 호출을 분산 지시  
+#     • seq_group_metadata_list, blocks_to_swap_in/out, blocks_to_copy 정보 전달  
+#     • 워커가 모델을 실행하고 output 변수에 결과 저장  
+#     • 워커는 이 결과를 바탕으로 KV 캐시와 메모리 관리 수행
+
+# 3. 스케줄러 업데이트 (self.scheduler.update(outputs)):
+#     • 모델 실행 결과(output)를 스케줄러에 전달  
+#     • scheduler.update가 KV 캐시 블록 및 시퀀스 상태 갱신  
+#     • 처리된 요청 그룹 리스트(seq_groups) 반환
+
+# 4. 디코딩 (self._decode_sequences(seq_groups)):
+#     • decode_sequences가 토큰 ID를 사람이 읽을 수 있는 텍스트로 변환  
+#     • detokenize_incrementally 사용, seq.output_tokens에 새 토큰 추가  
+#     • seq.output_text 업데이트
+
+# 5. 종료 조건 확인 (self._stop_sequences(seq_groups)):
+#     • stop_sequences가 각 시퀀스의 종료 조건 충족 여부 확인  
+#         - Stop Strings: output_text가 sampling_params 중지 문자열 만나면 종료  
+#         - Max Length: max_seq_len 또는 max_tokens 도달 시 종료  
+#         - EOS 토큰: ignore_eos False & 마지막 토큰이 EOS일 경우 종료  
+#     • 종료된 시퀀스는 후속 처리 그룹에서 제외
+
+# 6. 정리 (self.scheduler.free_finished_seq_groups()):
+#     • free_finished_seq_groups가 완료된 요청 그룹과 관련된 메모리 블록 해제
+
+# 7. 출력 생성:
+#     • 활성 seq_groups 및 ignored_seq_groups에 대해 RequestOutput 객체 생성  
+#     • 각 객체에 시퀀스 상태, 생성된 텍스트, 기타 정보 포함  
+#     • 최종적으로 RequestOutput 객체 리스트 반환
+
     def step(self) -> List[RequestOutput]:
         """Performs one decoding iteration and returns newly generated results.
 
