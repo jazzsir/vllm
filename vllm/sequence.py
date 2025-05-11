@@ -114,11 +114,15 @@ class Sequence:
         self.output_tokens: List[str] = []
         self.output_text = ""
 
+        # HBSEO logical_token_blocks는 특정 seq가 사용하는 논리적 token blocks들의 목록
+        # 각 논리적 블록은 BlockSpaceManager에 의해 실제 GPU 또는 CPU 메모리의 PhysicalTokenBlock에 매핑된다. 
+        # logical_token_blocks 리스트의 인덱스는 BlockTable에서 해당 논리적 블록에 매핑된 물리적 블록을 찾는 데 사용
         self.logical_token_blocks: List[LogicalTokenBlock] = []
         # Initialize the logical token blocks with the prompt token ids.
         self._append_tokens_to_blocks(prompt_token_ids)
         self.status = SequenceStatus.WAITING
 
+    # seq에 새로운 block을 추가함. 이건 새로 시작할때나 tokens이 block의 size를 초과할때 호출됨
     def _append_logical_block(self) -> None:
         block = LogicalTokenBlock(
             block_number=len(self.logical_token_blocks),
@@ -126,13 +130,17 @@ class Sequence:
         )
         self.logical_token_blocks.append(block)
 
+    # tokens을 logical_token_blocks에 추가함
     def _append_tokens_to_blocks(self, token_ids: List[int]) -> None:
         while token_ids:
             if not self.logical_token_blocks:
                 self._append_logical_block()
 
+            # HBSEO logical_token_blocks의 마지막 블록을 가져와서
             last_block = self.logical_token_blocks[-1]
+            # 해당 block이 다 찼으면
             if last_block.is_full():
+                # 새로운 block을 추가함
                 self._append_logical_block()
                 last_block = self.logical_token_blocks[-1]
 

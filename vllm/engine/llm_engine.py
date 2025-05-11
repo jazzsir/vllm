@@ -200,6 +200,7 @@ class LLMEngine:
                                   arrival_time)
 
         # Add the sequence group to the scheduler.
+        # HBSEO SequenceGroup의 상태를 WAITING으로 설정
         self.scheduler.add_seq_group(seq_group)
 
     def abort_request(self, request_id: str) -> None:
@@ -295,6 +296,8 @@ class LLMEngine:
 #     • 각 객체에 시퀀스 상태, 생성된 텍스트, 기타 정보 포함  
 #     • 최종적으로 RequestOutput 객체 리스트 반환
 
+
+    # HBSEO token을 생성할때마다 매 step 호출됨. 
     def step(self) -> List[RequestOutput]:
         """Performs one decoding iteration and returns newly generated results.
 

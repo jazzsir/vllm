@@ -121,6 +121,8 @@ class CacheConfig:
 
         # Will be set after profiling.
         self.num_gpu_blocks = None
+
+        # HBSEO cpu blocks을 사용하지 않으려면 여기에 0을 주면 될것 같다.
         self.num_cpu_blocks = None
 
     def _verify_args(self) -> None:
