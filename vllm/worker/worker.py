@@ -43,6 +43,7 @@ class Worker:
         # Initialize the model.
         set_random_seed(self.model_config.seed)
         self.model = get_model(model_config)
+        # 분산환경을 위해서 all_reduce를 launch하는듯?
         initialize_all_reduce_launcher(
             self.scheduler_config.max_num_batched_tokens,
             self.model_config.get_hidden_size(),
@@ -57,6 +58,7 @@ class Worker:
         self.cache_events = None
         self.gpu_cache = None
 
+    # vllm/engine/llm_engine.py의 _init_cache()에서 호출함.
     @torch.inference_mode()
     def profile_num_available_blocks(
         self,
@@ -132,6 +134,17 @@ class Worker:
         self.cache_events = self.cache_engine.events
         self.gpu_cache = self.cache_engine.gpu_cache
 
+
+    # HBSEO 아래의 모델에 전달될 항목에 대한 빈 리스트들을 초기화, 그리고 seq_group과 샘플링 파라미터를 저장할 seq_groups 리스트도 초기화
+    # - 입력 토큰(input_tokens), 
+    # - 각 토큰의 위치(input_positions), 
+    # - KV 캐시 슬롯 매핑 정보(slot_mapping), 
+    # - 프롬프트 길이(prompt_lens), 
+    # - 컨텍스트 길이(context_lens), 
+    # - 블록 테이블(generation_block_tables) 등을
+
+    # HBSEO 근데 매 step마다 이렇게 모두 초기화해서 계산한다. 즉, 기존 데이터에서 변경된 부분만 업데이트하는 증분(incremental)식이 아니다.
+    # 이건 개선의 여지가 있을것 같다.
     def _prepare_inputs(
         self,
         seq_group_metadata_list: List[SequenceGroupMetadata],
@@ -144,6 +157,7 @@ class Worker:
         # Add prompt tokens.
         prompt_lens: List[int] = []
         for seq_group_metadata in seq_group_metadata_list:
+            # HBSEO seq_group 에서 prefill 단계만 가져옴.
             if not seq_group_metadata.is_prompt:
                 continue
 
@@ -167,15 +181,20 @@ class Worker:
             if seq_group_metadata.block_tables is None:
                 # During memory profiling, the block tables are not initialized
                 # yet. In this case, we just use a dummy slot mapping.
+                # HBSEO prompt_len 만큼 0으로 채움
                 slot_mapping.extend([0] * prompt_len)
                 continue
 
             # Compute the slot mapping.
             block_table = seq_group_metadata.block_tables[seq_id]
             for i in range(prompt_len):
+                # HBSEO 토큰 수를 block_size로 나누면 논리적인 block index가 나옴
                 block_number = block_table[i // self.block_size]
+                # HBSEO 거기서 offset 계산
                 block_offset = i % self.block_size
+                # 총 slot 갯수
                 slot = block_number * self.block_size + block_offset
+                # 최종적으로 해당 seq의 총 slot 개수를 append
                 slot_mapping.append(slot)
 
         # Add generation tokens.
@@ -184,6 +203,7 @@ class Worker:
         context_lens: List[int] = []
         generation_block_tables: List[List[int]] = []
         for seq_group_metadata in seq_group_metadata_list:
+            # HBSEO seq_group 에서 prefill이 아닌 decoding 단계만 가져옴.
             if seq_group_metadata.is_prompt:
                 continue
 
@@ -191,6 +211,7 @@ class Worker:
             sampling_params = seq_group_metadata.sampling_params
             seq_groups.append((seq_ids, sampling_params))
 
+            # decoding 단계이므로 prefill단계와 다르게 모든 seq_id를 확인함
             for seq_id in seq_ids:
                 seq_data = seq_group_metadata.seq_data[seq_id]
                 generation_token = seq_data.get_last_token_id()
@@ -215,10 +236,15 @@ class Worker:
 
         # Optimization: Pad the input length to be a multiple of 8.
         # This is required for utilizing the Tensor Cores in NVIDIA GPUs.
+        # HBSEO NVIDIA GPU의 Tensor Core는 행렬 곱셈과 같은 특정 연산을 고속으로 수행하는 데 특화된 유닛이다. 
+        # Tensor Core는 특정 크기의 입력 데이터(일반적으로 8의 배수)에서 가장 효율적으로 작동하도록 설계되어 있다.
         input_tokens = _pad_to_alignment(input_tokens, multiple_of=8)
         input_positions = _pad_to_alignment(input_positions, multiple_of=8)
 
         # Convert to tensors.
+        # HBSEO 입력 데이터를 GPU에서 처리할 수 있는 PyTorch 텐서 형식으로 변환하는 단계. 
+        # 각 데이터의 특성에 맞는 적절한 데이터 타입(LongTensor, IntTensor)을 사용하고, 
+        # 특히 block table은 효율적인 배치 처리를 위해 최대 길이에 맞춰 패딩된 후 텐서로 변환
         tokens_tensor = torch.cuda.LongTensor(input_tokens)
         positions_tensor = torch.cuda.LongTensor(input_positions)
         slot_mapping_tensor = torch.cuda.IntTensor(slot_mapping)
@@ -244,6 +270,12 @@ class Worker:
         )
         return tokens_tensor, positions_tensor, input_metadata
 
+
+    # 스케줄러에 의해 어떤 블록이 Swap In/Out이 되고, 
+    # 어떤 블록이 복제되어야 하는지 (blocks_to_copy), 
+    # 모델에 포워딩되어야 하는 SequenceGroup이 무엇인지 결정되었지만,
+    # 실제 GPU/CPU 메모리 간의 데이터 이동은 일어나지 않았음
+    # CacheEngine 컴포넌트를 이용하여 실제로 데이터를 옮겨줌
     @torch.inference_mode()
     def execute_model(
         self,
@@ -277,6 +309,8 @@ class Worker:
             return {}
 
         # Prepare input tensors.
+        # HBSEO 모델에 전달될 항목에 대한 빈 리스트들을 초기화, seq_group과 샘플링 파라미터를 저장할 seq_groups 리스트도 초기화
+        # HBSEO 근데 매 step마다 이렇게 모두 초기화해서 계산한다. 즉, 기존 데이터에서 변경된 부분만 업데이트하는 증분(incremental)식이 아니다.
         input_tokens, input_positions, input_metadata = self._prepare_inputs(
             seq_group_metadata_list)
 

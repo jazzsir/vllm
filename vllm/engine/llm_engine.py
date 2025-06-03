@@ -82,17 +82,21 @@ class LLMEngine:
         self.seq_counter = Counter()
 
         # Create the parallel GPU workers.
+        # HBSEO parallelism(stage_devices)은 parallel_config의 내용으로 확인하는것 같다. 그걸로 TP를 결정하는듯
         self.workers: List[Worker] = []
         assert len(stage_devices) == 1, "Only support one stage for now."
         for rank, node_resource, _ in stage_devices[0]:
+            # HBSEO class를 instance화 한게 아니고 class 변수로 만든것 
             worker_cls = Worker
             if self.parallel_config.worker_use_ray:
+               # ray.remote는 클래스나 함수를 원격(Ray 클러스터에서 분산 실행 가능한 객체) 으로 바꿔줌
                 worker_cls = ray.remote(
                     num_cpus=0,
                     num_gpus=1,
                     resources={node_resource: 1e-3},
                 )(worker_cls).remote
 
+            # 분산환경이라면 ray.remmote로 단일 환경이라면 Worker로 생성.
             worker = worker_cls(
                 model_config,
                 parallel_config,
@@ -316,6 +320,7 @@ class LLMEngine:
 
         # Execute the model.
         output = self._run_workers(
+            # vllm/worker/worker.py 에 정의돼 있음.
             "execute_model",
             seq_group_metadata_list=seq_group_metadata_list,
             blocks_to_swap_in=scheduler_outputs.blocks_to_swap_in,

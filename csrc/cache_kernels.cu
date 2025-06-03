@@ -6,13 +6,34 @@
 #include <map>
 #include <vector>
 
+// PyTorch 텐서 간의 블록 스왑을 처리
+// CPU -> GPU
+// GPU -> GPU 
+// block_mapping 맵을 사용하여 src block 번호와 dst block 번호를 지정하고, 
+// cudaMemcpyAsync 함수를 사용하여 비동기적으로 메모리 복사를 수행
 void swap_blocks(
   torch::Tensor& src,
   torch::Tensor& dst,
   const std::map<int64_t, int64_t>& block_mapping) {
   torch::Device src_device = src.device();
   torch::Device dst_device = dst.device();
+  // HBSEO CUDA Runtime API 이다.
+  // enum cudaMemcpyKind
+  //   CUDA memory copy types
+  // 
+  //   Values
+  //   cudaMemcpyHostToHost = 0
+  //   Host -> Host
+  //   cudaMemcpyHostToDevice = 1
+  //   Host -> Device
+  //   cudaMemcpyDeviceToHost = 2
+  //   Device -> Host
+  //   cudaMemcpyDeviceToDevice = 3
+  //   Device -> Device
+  //   cudaMemcpyDefault = 4
+  //   Direction of the transfer is inferred from the pointer values. Requires unified virtual addressing
   cudaMemcpyKind memcpy_type;
+  // GPU -> GPU 인지 확인
   if (src_device.is_cuda() && dst_device.is_cuda()) {
     TORCH_CHECK(
       src_device.index() == dst_device.index(),
@@ -29,7 +50,12 @@ void swap_blocks(
   void *src_ptr = src.data_ptr();
   void *dst_ptr = dst.data_ptr();
 
+  // src 텐서의 "블록" 하나가 차지하는 총 메모리 크기를 바이트 단위로 계산하여 block_size_in_bytes 변수에 저장
+  // 이는 텐서의 각 요소 크기에 첫 번째 "블록" 또는 첫 번째 차원의 총 요소 수를 곱하여 얻어짐. 즉, 각 블록의 데이터 크기를 계산
+  // .element_size(): 각 요소(element)가 차지하는 메모리 크기를 바이트 단위로 반환하는 PyTorch 텐서의 메서드
+  // 예를 들어, float 타입 텐서의 경우 일반적으로 4바이트를 반환
   const int64_t block_size_in_bytes = src.element_size() * src[0].numel();
+
   const cudaStream_t stream = at::cuda::getCurrentCUDAStream();
   // NOTE(woosuk): This can be slow if the number of blocks is large.
   for (const auto& pair : block_mapping) {

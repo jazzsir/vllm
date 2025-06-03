@@ -46,6 +46,7 @@ _DATA_PARALLEL_GLOBAL_RANKS = None
 
 _ALL_REDUCE_LAUNCHER: Optional['GraphAllReduce'] = None
 
+# HBSEO 분산환경 관련 해서 global로 전역적으로 사용하는 변수들을 settting함. 
 def initialize_model_parallel(
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,

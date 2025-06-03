@@ -127,6 +127,7 @@ class CacheEngine:
                 event = self.events[i]
                 event.record(stream=self.cache_stream)
 
+    # HBSEO csrc/cache_kernels.cu dml swap_blocks() 으로 전달됨
     def swap_in(self, src_to_dst: Dict[int, int]) -> None:
         self._swap(self.cpu_cache, self.gpu_cache, src_to_dst)
 
