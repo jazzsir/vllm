@@ -142,6 +142,10 @@ class AsyncLLMEngine:
                 # The request has been aborted.
                 return
 
+            # HBSEO is_engine_running는 엔진이 다른 요청들에 의해 실행 중이라면 다시 실행하지 않도록 함.
+            # 이미 실행 중이라면 self.engine_step(request_id) 를 안해도
+            # 위에서 add_request로 schedlue에 의해 waiting queue에 들어가 있고
+            # engine_step은 다른 요청에 의해 한꺼번에 처리되므로 지금 받은 요청도 다른 요청에 의해 step에 포함됨.
             # Kick the engine if the engine is not running.
             if not self.is_engine_running:
                 try:

@@ -142,10 +142,12 @@ class Scheduler:
             # 여기서는 높은 우선순위의 seq_group이 slots을 할당 받을때(while) 까지 
             # 우선순위가 낮은 seq_group들을 preempt 해서 slots 확보
             while not self.block_manager.can_append_slot(seq_group):
+                # slot 여분이 없다
+
                 # Preempt the lowest-priority sequence groups.
                 # HBSEO Preempt 전략은 아래와 같음.
                 # 1. SequenceGroup 내에서 생성이 완료되지 않은 Sequence 개수를 구함
-                # 2. 만약 이 값이 1이라면, 해당 시퀀스 그룹의 KVCache를 모두 Free 하고 RECOMPUTE 상태로 변경합니다.
+                # 2. 만약 이 값이 1이라면, 해당 시퀀스 그룹의 KVCache를 모두 Free 하고 RECOMPUTE 상태로 변경.
                 #    RECOMPUTE (속도 빠름): 다음에 해당 seq_group이 Running 상태로 변경될 때 KV 캐시가 재계산
                 # 3. 만약 이 값이 1보다 크다면, 해당 시퀀스 그룹을 SWAP 상태로 변경.
                 #    SWAP (속도 느림): 다음에 해당 seq_group이 Running 상태로 변경될 때 KV 캐시가 복원
@@ -162,6 +164,7 @@ class Scheduler:
                     break
             # HBSEO while의 조건으로 빠져나가면 else를 타고, break 로 빠져나가면 else를 안타게 됨.
             else:
+                # slop 여분이 있다
                 # Append new slots to the sequence group.
                 self._append_slot(seq_group, blocks_to_copy)
                 running.append(seq_group)
