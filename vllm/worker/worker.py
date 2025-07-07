@@ -42,6 +42,8 @@ class Worker:
 
         # Initialize the model.
         set_random_seed(self.model_config.seed)
+
+        # HBSEO 여기서 모델 로딩
         self.model = get_model(model_config)
         # 분산환경을 위해서 all_reduce를 launch하는듯?
         initialize_all_reduce_launcher(
@@ -135,7 +137,8 @@ class Worker:
         self.gpu_cache = self.cache_engine.gpu_cache
 
 
-    # HBSEO 아래의 모델에 전달될 항목에 대한 빈 리스트들을 초기화, 그리고 seq_group과 샘플링 파라미터를 저장할 seq_groups 리스트도 초기화
+    # HBSEO 여러 개의 seq_groups을 하나의 배치로 통합하여 모델 실행에 필요한 입력 데이터를 준비하는 역할
+    # 아래의 모델에 전달될 항목에 대한 빈 리스트들을 초기화, 그리고 seq_group과 샘플링 파라미터를 저장할 seq_groups 리스트도 초기화해서 하나의 배치로 통합
     # - 입력 토큰(input_tokens), 
     # - 각 토큰의 위치(input_positions), 
     # - KV 캐시 슬롯 매핑 정보(slot_mapping), 
@@ -151,10 +154,16 @@ class Worker:
     ) -> Tuple[torch.Tensor, torch.Tensor, InputMetadata]:
         seq_groups: List[Tuple[List[int], SamplingParams]] = []
         input_tokens: List[int] = []
+
+        # HBSEO 각 seq의 토큰 위치를 추적하는 리스트, 즉, 향후 positioning embedding을 위해 필요함.
+        # 시퀀스 A: "Hello world"    → positions: [0, 1]
+        # 시퀀스 B: "How are you?"   → positions: [0, 1, 2]
+        # 배치 처리: [0, 1, 0, 1, 2] → 각 토큰이 해당 시퀀스 내 위치를 유지
         input_positions: List[int] = []
         slot_mapping: List[int] = []
 
         # Add prompt tokens.
+        # HBSEO Prompt 단계: "전체" prompt 토큰들을 수집
         prompt_lens: List[int] = []
         for seq_group_metadata in seq_group_metadata_list:
             # HBSEO seq_group 에서 prefill 단계만 가져옴.
@@ -173,6 +182,7 @@ class Worker:
             prompt_len = len(prompt_tokens)
             prompt_lens.append(prompt_len)
 
+            # HBSEO Prompt 토큰들을 입력 토큰 리스트에 추가
             input_tokens.extend(prompt_tokens)
             # NOTE(woosuk): Here we assume that the first token in the prompt
             # is always the first token in the sequence.
@@ -198,6 +208,7 @@ class Worker:
                 slot_mapping.append(slot)
 
         # Add generation tokens.
+        # HBSEO decode 단계: 각 seq의 마지막 토큰만 처리
         max_context_len = 0
         max_num_blocks_per_seq = 0
         context_lens: List[int] = []
@@ -218,6 +229,7 @@ class Worker:
                 input_tokens.append(generation_token)
 
                 context_len = seq_data.get_len()
+                # HBSEO 컨텍스트 길이에서 1을 뺀 값이 현재 토큰의 위치
                 position = context_len - 1
                 input_positions.append(position)
 

@@ -580,13 +580,23 @@ if __name__ == "__main__":
         served_model = args.model
 
     engine_args = AsyncEngineArgs.from_cli_args(args)
+
+    # HBSEO 실제 모델을 GPU에 로딩
+    # HBSEO 내부적으로 LLMEngine을 래핑하여 async처리를 가능하게 하는 AsyncLLMEngine에 engine_args를 전달하여 모델 로딩
     engine = AsyncLLMEngine.from_engine_args(engine_args)
+
+    # HBSEO 실행된 모델의 config를 가져옴. 근데 사용하지 않네?
+    # 아, 위의 create_chat_completion()내에서 check_length()호출할때 사용되긴 하는데, 잘못 구현된듯 함.
+    # HBSEO engine.get_model_config()
+    #       - 단일 노드: self.engine.get_model_config()
+    #       - 분산환경(Ray 사용): await self.engine.get_model_config.remote()
     engine_model_config = asyncio.run(engine.get_model_config())
 
     # A separate tokenizer to map token IDs to strings.
     tokenizer = get_tokenizer(engine_args.tokenizer,
                               tokenizer_mode=engine_args.tokenizer_mode)
 
+    # HBSEO FastAPI 비동기 웹 서버 실행
     uvicorn.run(app,
                 host=args.host,
                 port=args.port,

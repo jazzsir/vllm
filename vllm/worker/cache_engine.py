@@ -120,14 +120,15 @@ class CacheEngine:
                 src_key_cache, src_value_cache = src[i]
                 dst_key_cache, dst_value_cache = dst[i]
                 # Copy the key blocks.
+                # HBSEO csrc/cache_kernels.cu dml swap_blocks() 으로 전달
                 cache_ops.swap_blocks(src_key_cache, dst_key_cache, src_to_dst)
                 # Copy the value blocks.
+                # HBSEO csrc/cache_kernels.cu dml swap_blocks() 으로 전달
                 cache_ops.swap_blocks(src_value_cache, dst_value_cache,
                                       src_to_dst)
                 event = self.events[i]
                 event.record(stream=self.cache_stream)
 
-    # HBSEO csrc/cache_kernels.cu dml swap_blocks() 으로 전달됨
     def swap_in(self, src_to_dst: Dict[int, int]) -> None:
         self._swap(self.cpu_cache, self.gpu_cache, src_to_dst)
 

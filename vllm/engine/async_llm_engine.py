@@ -52,6 +52,8 @@ class AsyncLLMEngine:
             engine_class = ray.remote(num_cpus=0)(LLMEngine).remote
         else:
             engine_class = ray.remote(num_gpus=1)(LLMEngine).remote
+
+        # HBSEO 모델 로딩 -> LLMEngine __init__ 호출
         self.engine = engine_class(*args, **kwargs)
         # Request id -> request output.
         self.request_outputs: Dict[str, RequestOutput] = {}
@@ -218,8 +220,10 @@ class AsyncLLMEngine:
     async def get_model_config(self) -> ModelConfig:
         """Get the model configuration of the vLLM engine."""
         if self.engine_use_ray:
+            # HBSEO 분산환경(Ray 사용)
             return await self.engine.get_model_config.remote()
         else:
+            # HBSEO 단일 노드
             return self.engine.get_model_config()
 
     @classmethod
@@ -232,6 +236,8 @@ class AsyncLLMEngine:
         # Initialize the cluster.
         distributed_init_method, devices = initialize_cluster(
             parallel_config, engine_args.engine_use_ray)
+
+        # HBSEO 모델 로딩: AsyncLLMEngine __init__을 호출
         # Create the async LLM engine.
         engine = cls(engine_args.worker_use_ray,
                      engine_args.engine_use_ray,
