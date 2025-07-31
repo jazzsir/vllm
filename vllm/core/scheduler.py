@@ -153,6 +153,7 @@ class Scheduler:
                 #    SWAP (속도 느림): 다음에 해당 seq_group이 Running 상태로 변경될 때 KV 캐시가 복원
                 #    Swap Out이 예정된 그룹의 KV Cache 블록들은 blocks_to_swap_out(Dict[gpu_block_id, cpu_block_id]) 변수에 담김
                 if self.running:
+                    # 가장 낮은 우선순위의 seq_group을 가져옴
                     victim_seq_group = self.running.pop(-1)
                     self._preempt(victim_seq_group, blocks_to_swap_out)
                     preempted.append(victim_seq_group)
@@ -283,7 +284,7 @@ class Scheduler:
             # HBSEO Running 상태였던 그룹이 Swapped 상태로 변경되어 Swap-out 시키기 위한 GPU↔CPU 간 블록 테이블
             blocks_to_swap_out=blocks_to_swap_out,
 
-            # HBSEO GPU 내에 있는 블록을 다른 위치로 복사할 블록 Pair 리스트.
+            # HBSEO GPU slot 할당 받은 정보.
             blocks_to_copy=blocks_to_copy,
         )
 
