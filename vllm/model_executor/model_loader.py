@@ -34,6 +34,8 @@ def _get_model_architecture(config: PretrainedConfig) -> Type[nn.Module]:
 
 # HBSEO 실제 모델 로딩
 def get_model(model_config: ModelConfig) -> nn.Module:
+
+    # HBSEO config.json의 architecture 필드의 값으로 모델 클래스가 결정된다.
     model_class = _get_model_architecture(model_config.hf_config)
     torch.set_default_dtype(model_config.dtype)
 

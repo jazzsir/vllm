@@ -154,6 +154,8 @@ class VocabParallelEmbedding(torch.nn.Module):
         self.scale_grad_by_freq = False
         self.sparse = False
         self._weight = None
+
+        # HBSEO 텐서 병렬화를 위한 vocab 범위 계산
         self.tensor_model_parallel_size = get_tensor_model_parallel_world_size()
         # Divide the weight matrix along the vocaburaly dimension.
         self.vocab_start_index, self.vocab_end_index = \
@@ -163,6 +165,8 @@ class VocabParallelEmbedding(torch.nn.Module):
         self.num_embeddings_per_partition = self.vocab_end_index - \
             self.vocab_start_index
 
+        # HBSEO weight에 빈 텐서 할당(값은 쓰레기 값) 및 초기화
+        # - 실제 값은 get_model()에서 진행됨
         # Allocate weights and initialize.
         if use_cpu_initialization:
             self.weight = Parameter(torch.empty(
@@ -247,6 +251,8 @@ class ColumnParallelLinear(torch.nn.Module):
         self.input_size = input_size
         self.output_size = output_size
         self.gather_output = gather_output
+
+        # HBSEO TP를 위한 출력 크기 계산
         # Divide the weight matrix along the last dimension.
         world_size = get_tensor_model_parallel_world_size()
         self.output_size_per_partition = divide(output_size, world_size)
@@ -259,6 +265,7 @@ class ColumnParallelLinear(torch.nn.Module):
         # Note: torch.nn.functional.linear performs XA^T + b and as a result
         # we allocate the transpose.
         # Initialize weight.
+        # HBSEO Weight 텐서 할당 및 초기화
         if use_cpu_initialization:
             self.weight = Parameter(torch.empty(self.output_size_per_partition,
                                                 self.input_size,
