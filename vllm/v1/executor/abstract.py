@@ -19,6 +19,28 @@ from vllm.v1.outputs import ModelRunnerOutput
 FailureCallback = Callable[[], None]
 
 
+# distributed_executor_backend 가 ray, mp, uni, external_launcher 인 경우 각각 해당 실행기 클래스 반환
+
+# 측면                    멀티프로세싱 (MP)                      Ray
+# 클라이언트 선택	         동일한 로직                           동일한 로직
+# 프로세스 관리             Python subprocess	                 Ray Actor
+# 통신 방식                ZMQ + 직접 IPC                      ZMQ + Ray 내부 통신
+# Pipeline Parallelism   지원 안함 (max_concurrent_batches=1)	지원함
+# 최적화                  기본 Python 멀티프로세싱                Compiled DAG, SPMD Worker
+# 확장성                  단일 노드만                            다중 노드 지원
+# 장애 복구               기본적                                Ray의 고급 장애 복구
+
+
+#Client ←→ ZMQ Socket ←→ Python Subprocess(or Ray Actor) (EngineCore)
+#                     ←→ Python Subprocess(or Ray Actor) (Worker 0)
+#                     ←→ Python Subprocess(or Ray Actor) (Worker 1)
+#                     ←→ Python Subprocess(or Ray Actor) (Worker 2)
+
+# Ray를 사용하든 멀티프로세싱을 사용하든 make_async_mp_client의 클라이언트 선택 로직은 완전히 동일합니다. 차이점은:
+# 클라이언트 계층: 동일한 AsyncMPClient, DPAsyncMPClient, DPLBAsyncMPClient 사용
+# Executor 계층: RayDistributedExecutor vs MultiprocExecutor 사용
+# 성능과 기능: Ray가 더 많은 최적화와 기능 제공
+
 class Executor(ExecutorBase):
     """
     Abstract class for v1 executors, mainly define some methods for v1.

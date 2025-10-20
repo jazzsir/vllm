@@ -28,6 +28,28 @@ from vllm.v1.structured_output.backend_xgrammar import (
     validate_xgrammar_grammar)
 
 
+
+# 사용자 요청 (OpenAI API)
+#     ↓
+# Processor.process_inputs()
+#     ↓ (유효성 검증)
+# InputPreprocessor.preprocess()
+#     ↓ (입력 타입 분석)
+# ┌─────────────┬─────────────┬─────────────┬─────────────┐
+# │ 텍스트       │ 토큰        │ 임베딩      │ 멀티모달    │
+# │ 입력         │ 입력        │ 입력        │ 입력        │
+# └─────────────┴─────────────┴─────────────┴─────────────┘
+#        ↓             ↓             ↓             ↓
+# _process_text() _process_tokens() _process_embeds() _process_multimodal()
+#     ↓             ↓             ↓             ↓
+#     └─────────────┴─────────────┴─────────────┘
+#                     ↓
+#             ProcessorInputs 반환
+#                     ↓
+#             EngineCoreRequest 생성
+#                     ↓
+#             엔진 코어로 전달
+
 class Processor:
 
     def __init__(
@@ -44,8 +66,22 @@ class Processor:
         self.decoding_config = vllm_config.decoding_config
         self.tokenizer = tokenizer
 
+        # generation_config.json 파일에 있는 설정들을 가져옴. 아래는 llama-3.1-8b-instruct 모델의 generation_config.json 파일 예시임
+        #{
+        #  "bos_token_id": 128000,
+        #  "do_sample": true,
+        #  "eos_token_id": [
+        #    128001,
+        #    128008,
+        #    128009
+        #  ],
+        #  "temperature": 0.6,
+        #  "top_p": 0.9,
+        #  "transformers_version": "4.42.3"
+        #}
         self.generation_config_fields = (
             self.model_config.try_get_generation_config())
+
         self.input_preprocessor = InputPreprocessor(self.model_config,
                                                     self.tokenizer,
                                                     mm_registry)

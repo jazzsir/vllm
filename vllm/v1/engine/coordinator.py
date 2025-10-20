@@ -54,6 +54,10 @@ class DPCoordinator:
     request wave / running state changes.
     """
 
+    # get_mp_context(): 멀티프로세싱 컨텍스트 생성
+    # context.Process(): 새 프로세스 생성
+    # CoordinatorProc.run_coordinator: Coordinator 프로세스 메인 함수
+    # self.proc.start(): 프로세스 시작
     def __init__(self, parallel_config: ParallelConfig):
 
         dp_size = parallel_config.data_parallel_size

@@ -50,6 +50,8 @@ class AsyncLLM(EngineClient):
         executor_class: type[Executor],
         log_stats: bool,
         usage_context: UsageContext = UsageContext.ENGINE_CONTEXT,
+        # MultiModalRegistry는 vLLM 프로세스 내부에서 실행되는 라이브러리 컴포넌트. 
+        # 외부 서비스나 별도의 데몬이 아니라, 모델 서버와 동일한 프로세스 공간에서 멀티모달 데이터 처리 로직을 제공하는 내장 시스템.
         mm_registry: MultiModalRegistry = MULTIMODAL_REGISTRY,
         use_cached_outputs: bool = False,
         log_requests: bool = True,
@@ -85,6 +87,7 @@ class AsyncLLM(EngineClient):
                 "AsyncLLMEngine.from_vllm_config(...) or explicitly set "
                 "VLLM_USE_V1=0 or 1 and report this issue on Github.")
 
+        #
         # Ensure we can serialize custom transformer configs
         maybe_register_config_serialize_by_value()
 

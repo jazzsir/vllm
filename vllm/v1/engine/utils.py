@@ -38,6 +38,7 @@ class CoreEngineState(Enum):
     READY = auto()
 
 
+# DP rank별 상태 관리를 위한 Metadata 클래스
 class CoreEngine:
     """One per data parallel rank, used to track state during handshaking."""
 
@@ -73,7 +74,9 @@ class EngineHandshakeMetadata:
     addresses: EngineZmqAddresses
     parallel_config: dict[str, Union[int, str]]
 
-
+# 프로세스 생성: 여러 EngineCore 백그라운드 프로세스 생성
+# 생명주기 관리: 프로세스 시작, 모니터링, 종료
+# 리소스 정리: 예외 상황에서도 안전한 프로세스 정리
 class CoreEngineProcManager:
     """
     Utility class to handle creation, readiness, and shutdown
@@ -82,18 +85,20 @@ class CoreEngineProcManager:
 
     def __init__(
         self,
-        target_fn: Callable,
-        local_engine_count: int,
-        start_index: int,
-        local_start_index: int,
-        vllm_config: VllmConfig,
-        local_client: bool,
-        handshake_address: str,
-        executor_class: type[Executor],
-        log_stats: bool,
-        client_handshake_address: Optional[str] = None,
+        target_fn: Callable,                            # 각 프로세스에서 실행할 함수
+        local_engine_count: int,                        # 생성할 로컬 엔진 수
+        start_index: int,                               # 전역 시작 인덱스
+        local_start_index: int,                         # 로컬 시작 인덱스 
+        vllm_config: VllmConfig,                        # vLLM 설정
+        local_client: bool,                             # 로컬 클라이언트 여부
+        handshake_address: str,                         # 핸드셰이크 주소
+        executor_class: type[Executor],                 # 실행기 클래스
+        log_stats: bool,                                # 통계 로깅 여부
+        client_handshake_address: Optional[str] = None, # 클라이언트 핸드셰이크 주소
     ):
-        context = get_mp_context()
+        # 멀티프로세싱 컨텍스트 획득
+        context = get_mp_context() # fork/spawn/forkserver 중 적절한 방법 선택
+        # 모든 프로세스가 공통으로 사용할 설정
         common_kwargs = {
             "vllm_config": vllm_config,
             "local_client": local_client,
@@ -102,34 +107,45 @@ class CoreEngineProcManager:
             "log_stats": log_stats,
         }
 
+        # 클라이언트 핸드셰이크 주소 추가 (선택적)
         if client_handshake_address:
             common_kwargs[
                 "client_handshake_address"] = client_handshake_address
 
+        # 프로세스 리스트 초기화
         self.processes: list[BaseProcess] = []
         local_dp_ranks = []
-        for index in range(local_engine_count):
+        # 각 엔진별로 프로세스 생성
+        for index in range(local_engine_count): # 예: 4번 반복
+            # 인덱스 계산 (로컬 인덱스, 전역 인덱스)
             local_index = local_start_index + index
             global_index = start_index + index
 
             # Start EngineCore in background process.
+            # DP rank 기록
             local_dp_ranks.append(local_index)
+            # 실제 프로세스 생성!
             self.processes.append(
-                context.Process(target=target_fn,
-                                name=f"EngineCore_{global_index}",
-                                kwargs=common_kwargs | {
-                                    "dp_rank": global_index,
-                                    "local_dp_rank": local_index,
+                context.Process(target=target_fn,                   # EngineCoreProc.run_engine_core
+                                name=f"EngineCore_{global_index}",  # 프로세스 이름
+                                kwargs=common_kwargs | {            # 설정 + 개별 파라미터
+                                    "dp_rank": global_index,        # 전역 DP rank
+                                    "local_dp_rank": local_index,   # 로컬 DP rank
                                 }))
 
+        # 가비지 컬렉션 시 자동 정리 설정
         self._finalizer = weakref.finalize(self, shutdown, self.processes)
 
+        # 데이터 병렬 여부 확인
         data_parallel = vllm_config.parallel_config.data_parallel_size > 1
+        # 각 프로세스 시작
         try:
             for proc, local_dp_rank in zip(self.processes, local_dp_ranks):
+                # CUDA 디바이스 환경 변수 설정 (DP 모드에서)
                 with set_device_control_env_var(
                         vllm_config, local_dp_rank) if (
                             data_parallel) else contextlib.nullcontext():
+                    # 프로세스 시작!
                     proc.start()
         finally:
             # Kill other procs if not all are running.
@@ -571,14 +587,14 @@ def launch_core_engines(
     """Launch engine and DP coordinator processes as needed."""
 
     parallel_config = vllm_config.parallel_config
-    dp_size = parallel_config.data_parallel_size
-    local_engine_count = parallel_config.data_parallel_size_local
-    local_start_index = parallel_config.data_parallel_rank_local
-    dp_rank = parallel_config.data_parallel_rank
-    host = parallel_config.data_parallel_master_ip
+    dp_size = parallel_config.data_parallel_size                  # 전체 DP 크기 (예: 4)
+    local_engine_count = parallel_config.data_parallel_size_local # 로컬 엔진 수 (예: 2)
+    local_start_index = parallel_config.data_parallel_rank_local  # 로컬 시작 인덱스
+    dp_rank = parallel_config.data_parallel_rank                  # 현재 DP rank (예: 0)
+    host = parallel_config.data_parallel_master_ip                # 마스터 IP
     local_engines_only = (parallel_config.data_parallel_hybrid_lb
                           or parallel_config.data_parallel_external_lb)
-
+    
     # In offline mode there is an LLM instance per DP rank and
     # one core engine per LLM, see
     # examples/offline_inference/data_parallel.py.
@@ -590,6 +606,8 @@ def launch_core_engines(
                          or (local_engine_count == dp_size))
 
     # Set up input and output addresses.
+    # ZMQ 주소 설정
+    # 입력/출력 주소 생성
     addresses = EngineZmqAddresses(
         inputs=[
             get_engine_client_zmq_addr(client_local_only, host)
@@ -603,9 +621,12 @@ def launch_core_engines(
 
     # Run the DP Coordinator process with rank 0 when in
     # online DP mode.
+    # Coordinator 생성 조건 확인
     run_coordinator = dp_size > 1 and not offline_mode and dp_rank == 0
+    #                  ↑ DP 사용              ↑ 온라인 모드               ↑ rank 0에서만
 
     if run_coordinator:
+        # Coordinator 프로세스 시작
         coordinator = DPCoordinator(parallel_config)
 
         addresses.coordinator_input, addresses.coordinator_output = (
@@ -621,6 +642,7 @@ def launch_core_engines(
     if parallel_config.data_parallel_backend == "ray":
         logger.info("Starting ray-based data parallel backend")
 
+        # Ray 액터 관리자 생성
         engine_actor_manager = CoreEngineActorManager(
             vllm_config=vllm_config,
             addresses=addresses,
@@ -641,7 +663,7 @@ def launch_core_engines(
         # and rank 0 is headless.
         engines_to_handshake = [
             CoreEngine(index=i, local=(i < local_engine_count))
-            for i in range(dp_size)
+            for i in range(dp_size) # 모든 DP rank와 핸드셰이크
         ]
     else:
         # Rank > 0 handshakes with just the local cores it is managing.
@@ -659,6 +681,7 @@ def launch_core_engines(
     # will be False.
     handshake_local_only = offline_mode or local_engine_count == dp_size
 
+    # 핸드셰이크용 주소 생성
     handshake_address = get_engine_client_zmq_addr(
         handshake_local_only, host, parallel_config.data_parallel_rpc_port)
 
@@ -670,6 +693,7 @@ def launch_core_engines(
         local_handshake_address = handshake_address
         client_handshake_address = None
 
+    # 핸드셰이크용 소켓 생성
     with zmq_socket_ctx(local_handshake_address, zmq.ROUTER,
                         bind=True) as handshake_socket:
 

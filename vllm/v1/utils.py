@@ -95,7 +95,9 @@ class ConstantList(Generic[T], Sequence):
     def __repr__(self):
         return f"ConstantList({self._x})"
 
-
+# 로컬 통신: ipc:// 프로토콜 사용 (Unix 도메인 소켓)
+# 원격 통신: tcp:// 프로토콜 사용 (네트워크 소켓)
+# 동적 포트: 사용 가능한 포트 자동 할당
 def get_engine_client_zmq_addr(local_only: bool,
                                host: str,
                                port: int = 0) -> str:

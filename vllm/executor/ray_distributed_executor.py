@@ -436,7 +436,7 @@ class RayDistributedExecutor(DistributedExecutorBase):
             serialized_data = execute_model_req
         else:
             serialized_data = self.input_encoder.encode(execute_model_req)
-        outputs = ray.get(self.forward_dag.execute(serialized_data))
+        outputs = ray.get(self.forward_dag.execute(serialized_data)) # Ray의 Compiled DAG 최적화
         if self.use_v1:
             output = outputs[0]
         else:

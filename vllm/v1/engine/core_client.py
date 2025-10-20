@@ -80,20 +80,41 @@ class EngineCoreClient(ABC):
 
     @staticmethod
     def make_async_mp_client(
-        vllm_config: VllmConfig,
-        executor_class: type[Executor],
-        log_stats: bool,
-        client_addresses: Optional[dict[str, str]] = None,
-        client_index: int = 0,
+        vllm_config: VllmConfig,                           # vLLM 전체 설정
+        executor_class: type[Executor],                    # 실행기 클래스 타입
+        log_stats: bool,                                   # 통계 로깅 여부
+        client_addresses: Optional[dict[str, str]] = None, # 클라이언트 주소 맵핑
+        client_index: int = 0,                             # 클라이언트 인덱스
     ) -> "MPClient":
         parallel_config = vllm_config.parallel_config
         client_args = (vllm_config, executor_class, log_stats,
                        client_addresses, client_index)
         if parallel_config.data_parallel_size > 1:
+            # data_parallel_external_lb = False 일 경우 (노드 내)
+            # Client → vLLM API Server (Single Endpoint)
+            #    ↓ (Internal LB)
+            #  ┌──────────────────────┐
+            #  │ DP Rank 0 (GPU 0-1)  │
+            #  │ DP Rank 1 (GPU 2-3)  │
+            #  │ DP Rank 2 (GPU 4-5)  │
+            #  │ DP Rank 3 (GPU 6-7)  │
+            #  └──────────────────────┘
+            #
+            # data_parallel_external_lb = True 일 경우 (노드 간)
+            #  External Load Balancer (HAProxy, nginx, K8s Service)
+            #    ↓ (External LB)
+            # ┌────────────────────────────────────────┐
+            # │ vLLM Instance 0 (Port 8000, GPU 0-1)  │
+            # │ vLLM Instance 1 (Port 8001, GPU 2-3)  │
+            # │ vLLM Instance 2 (Port 8002, GPU 4-5)  │
+            # │ vLLM Instance 3 (Port 8003, GPU 6-7)  │
+            # └────────────────────────────────────────┘
+
             if parallel_config.data_parallel_external_lb:
                 # External load balancer - client per DP rank.
                 return DPAsyncMPClient(*client_args)
             # Internal load balancer - client balances to all DP ranks.
+            # DPLBAsyncMPClient를 호출하면 -> DPAsyncMPClient -> AsyncMPClient를 호출하게 됨.
             return DPLBAsyncMPClient(*client_args)
         return AsyncMPClient(*client_args)
 
@@ -389,16 +410,21 @@ class MPClient(EngineCoreClient):
         # This will ensure resources created so far are closed
         # when the client is garbage collected, even if an
         # exception is raised mid-construction.
+        # 백그라운드 리소스 관리자 생성
         self.resources = BackgroundResources(ctx=sync_ctx)
+        # 가비지 컬렉션 시 자동 정리 설정
         self._finalizer = weakref.finalize(self, self.resources)
+        # 성공 플래그 초기화
         success = False
         try:
             # State used for data parallel.
             self.engines_running = False
 
+            # stats_update_address: 통계 업데이트 주소 (Coordinator 를 의미하는것 같음)
             self.stats_update_address: Optional[str] = None
             if client_addresses is not None:
                 # Engines are managed externally to this client.
+                # 이미 실행중인 엔진들이 있드면 연결
                 input_address = client_addresses["input_address"]
                 output_address = client_addresses["output_address"]
                 self.stats_update_address = client_addresses.get(
@@ -665,6 +691,10 @@ class SyncMPClient(MPClient):
         self.call_utility("save_sharded_state", path, pattern, max_size)
 
 
+# 기능
+# - 단일 엔진과 통신
+# - 기본 ZMQ 소켓 관리
+# - 비동기 I/O 처리
 class AsyncMPClient(MPClient):
     """Asyncio-compatible client for multi-proc EngineCore."""
 
@@ -695,6 +725,10 @@ class AsyncMPClient(MPClient):
         except RuntimeError:
             pass
 
+    # - 목적: 모델 추론 결과 수신
+    # - 소스: EngineCore 프로세스들
+    # - 빈도: 요청 처리 시마다 (불규칙)
+    # - ZMQ 패턴: EngineCore (PUSH) → Client (PULL)  "1:1 결과 전송"
     def _ensure_output_queue_task(self):
         resources = self.resources
         if resources.output_queue_task is not None:
@@ -716,8 +750,10 @@ class AsyncMPClient(MPClient):
         async def process_outputs_socket():
             try:
                 while True:
+                    # ZMQ PULL 소켓으로 출력 수신
                     frames = await output_socket.recv_multipart(copy=False)
                     resources.validate_alive(frames)
+                    # 받은 데이터 디코딩
                     outputs: EngineCoreOutputs = decoder.decode(frames)
                     if outputs.utility_output:
                         _process_utility_output(outputs.utility_output,
@@ -733,6 +769,7 @@ class AsyncMPClient(MPClient):
                         await output_handler(_self, outputs)
 
                     if outputs.outputs or outputs.scheduler_stats:
+                        # asyncio.Queue 에 출력 결과 추가
                         outputs_queue.put_nowait(outputs)
             except Exception as e:
                 outputs_queue.put_nowait(e)
@@ -861,6 +898,10 @@ class AsyncMPClient(MPClient):
                                              args, kwargs)
 
 
+# 기능
+# - 다중 엔진 관리
+# - 통계 업데이트 태스크
+# - 웨이브 기반 요청 추적
 class DPAsyncMPClient(AsyncMPClient):
     """Asyncio-compatible client for multi-proc, multi-engine (data parallel)
     EngineCore. Assumes external load-balancing by default."""
@@ -878,27 +919,40 @@ class DPAsyncMPClient(AsyncMPClient):
 
         # List of [waiting, running] pair per engine.
         # Used only by DPLBAsyncMPClient subclass.
+        # 로드 밸런싱용 엔진 상태[waiting, running] 배열 초기화
         self.lb_engines: list[list[int]] = []
 
+        # 첫 번째 요청용 소켓 생성
         self.first_req_sock_addr = get_open_zmq_inproc_path()
         self.first_req_send_socket = self.resources.first_req_send_socket = (
             make_zmq_socket(self.ctx,
                             self.first_req_sock_addr,
                             zmq.PAIR,
                             bind=True))
+
+        # Coordinator 에서 통계 업데이트 태스크 시작
+        # 이것을 기반으로 Coordinator에서 load balance 결정 하는 듯
         try:
             # If we are running in an asyncio event loop, start the stats task.
             # Otherwise, it will be started lazily.
             asyncio.get_running_loop()
-            self._ensure_stats_update_task()
+            self._ensure_stats_update_task() # 백그라운드 통계 수집 시작
         except RuntimeError:
-            pass
+            pass # 이벤트 루프가 없으면 나중에 시작
 
+
+
+    # - 목적: 로드 밸런싱 정보 수신
+    # - 소스: Coordinator 프로세스
+    # - 빈도: 100ms마다 (정규적)
+    # - ZMQ 패턴: Coordinator (XPUB) → Clients (XSUB)  "1:N 브로드캐스트"
     def _ensure_stats_update_task(self):
         resources = self.resources
+        # 이미 태스크가 실행 중이면 중복 생성 방지
         if resources.stats_update_task is not None:
             return
 
+        # stats_update_address 는 Coordinator 주로를 의미하는것 같음
         assert self.stats_update_address is not None
         assert len(self.engine_ranks_managed) > 0
         # NOTE: running and waiting counts are all global from
@@ -906,7 +960,7 @@ class DPAsyncMPClient(AsyncMPClient):
         # slice includes just the cores managed by this client.
         count_slice = slice(self.engine_ranks_managed[0],
                             self.engine_ranks_managed[-1] + 1)
-
+        # 백그라운드 태스크 생성
         async def run_engine_stats_update_task():
             with make_zmq_socket(self.ctx, self.stats_update_address,
                                  zmq.XSUB) as socket, make_zmq_socket(
@@ -1009,6 +1063,13 @@ class DPLBAsyncMPClient(DPAsyncMPClient):
                  client_index: int = 0):
 
         # To route aborts to the correct engine.
+        # EngineIdentity는 각 EngineCore 프로세스를 고유하게 식별하는 바이트 문자열로써,
+        # request_id가 어느 engine에서 실행하는지 기록해 두고 나중에 해당 req를 최소했을때 해당 engine에게 알려주기 위함
+        # - str: request_id
+        # - EngineIdentity: 엔진 고유 식별자
+        # 요청 기록: get_core_engine_for_request()
+        # 요청 완료시 제거: process_engine_outputs()
+        # 요청 취소: abort_requests_async()
         self.reqs_in_flight: dict[str, EngineIdentity] = {}
 
         super().__init__(vllm_config, executor_class, log_stats,

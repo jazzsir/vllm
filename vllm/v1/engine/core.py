@@ -585,6 +585,11 @@ class EngineCoreProc(EngineCore):
 
         return init_message.addresses
 
+
+
+    # 백그라운드 프로세스의 메인 함수
+    # 모델 로딩: 실제 LLM 모델을 GPU에 로드
+    # 무한 루프: 요청을 받아 추론 수행하는 busy loop 실행
     @staticmethod
     def run_engine_core(*args,
                         dp_rank: int = 0,
@@ -598,28 +603,38 @@ class EngineCoreProc(EngineCore):
         shutdown_requested = False
 
         # Ensure we can serialize transformer config after spawning
+        # 커스텀 transformer 설정 직렬화 등록
+        #  - trust_remote_code 지원: 커스텀 모델 설정 클래스 직렬화
+        #  - 멀티프로세싱 호환성: 프로세스 간 설정 객체 안전 전달
+        #  - DeepSeek, Qwen 등: 커스텀 설정이 있는 모델들 지원
         maybe_register_config_serialize_by_value()
 
+        # 신호 핸들러 정의
         def signal_handler(signum, frame):
             nonlocal shutdown_requested
             if not shutdown_requested:
                 shutdown_requested = True
                 raise SystemExit()
 
+        # 신호 핸들러 등록
         # Either SIGTERM or SIGINT will terminate the engine_core
-        signal.signal(signal.SIGTERM, signal_handler)
-        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler) # 종료 신호
+        signal.signal(signal.SIGINT, signal_handler)  # 인터럽트 신호 (Ctrl+C)
 
         engine_core: Optional[EngineCoreProc] = None
         try:
+            # 병렬 설정 추출
             parallel_config: ParallelConfig = kwargs[
                 "vllm_config"].parallel_config
+            # DP rank 설정 업데이트
             if parallel_config.data_parallel_size > 1 or dp_rank > 0:
                 # Set data parallel rank for this engine process.
                 parallel_config.data_parallel_rank = dp_rank
                 parallel_config.data_parallel_rank_local = local_dp_rank
+                # DP 전용 엔진
                 engine_core = DPEngineCoreProc(*args, **kwargs)
             else:
+                # 단일 엔진
                 engine_core = EngineCoreProc(*args, **kwargs)
 
             engine_core.run_busy_loop()

@@ -86,11 +86,11 @@ class GuidedDecodingParams:
 
 class RequestOutputKind(Enum):
     # Return entire output so far in every RequestOutput
-    CUMULATIVE = 0
+    CUMULATIVE = 0 # 누적 출력 (전체 텍스트)
     # Return only deltas in each RequestOutput
-    DELTA = 1
+    DELTA = 1 # 증분 출력 (새로운 토큰만)
     # Do not return intermediate RequestOutput
-    FINAL_ONLY = 2
+    FINAL_ONLY = 2 # 최종 출력만
 
 
 class SamplingParams(

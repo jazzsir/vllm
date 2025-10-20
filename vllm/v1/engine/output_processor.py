@@ -21,6 +21,7 @@ from vllm.v1.metrics.stats import (IterationStats, LoRARequestStates,
                                    RequestStateStats)
 
 
+# 스트리밍 지원
 class RequestOutputCollector:
     """
     Collects streamed RequestOutputs per individual request,
@@ -102,13 +103,13 @@ class RequestState:
         self.prompt = prompt
         self.prompt_token_ids = prompt_token_ids
         self.prompt_len = len(prompt_token_ids)
-        self.logprobs_processor = logprobs_processor
-        self.detokenizer = detokenizer
+        self.logprobs_processor = logprobs_processor # 로그 확률 처리기
+        self.detokenizer = detokenizer # 점진적 디토크나이저
         self.max_tokens_param = max_tokens_param
-        self.is_prefilling = True
-        self.queue = queue
+        self.is_prefilling = True # 프리필 단계 여부
+        self.queue = queue # 비동기 출력 큐
 
-        self.stats = RequestStateStats(
+        self.stats = RequestStateStats( # 통계 정보
             arrival_time=arrival_time) if log_stats else None
 
     @classmethod
@@ -281,9 +282,9 @@ class OutputProcessor:
     ):
         self.log_stats = log_stats
         self.tokenizer = tokenizer
-        self.request_states: dict[str, RequestState] = {}
-        self.parent_requests: dict[str, ParentRequest] = {}
-        self.lora_states = LoRARequestStates()
+        self.request_states: dict[str, RequestState] = {} # 요청별 상태 관리
+        self.parent_requests: dict[str, ParentRequest] = {} # 병렬 샘플링용
+        self.lora_states = LoRARequestStates() # LoRA 상태 관리
 
     def get_num_unfinished_requests(self):
         return len(self.request_states)

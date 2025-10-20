@@ -645,7 +645,10 @@ def get_sentence_transformer_tokenizer_config(model: str,
         return encoder_dict
     return None
 
-
+# trust_remote_code=True는 허깅페이스 허브(Hugging Face Hub)와 같은 원격 저장소에서 모델을 불러올 때, 해당 모델 저장소에 포함된 커스텀 파이썬 코드를 로컬 환경에서 실행할지 여부를 결정함
+# 이 함수는 vLLM이 trust_remote_code를 사용하는 커스텀 모델들을 멀티프로세싱/분산 환경에서 안전하게 처리할 수 있도록 하는 핵심 유틸리티 함수입니다. 
+# cloudpickle의 'by-value' 직렬화를 통해 동적으로 생성된 설정 클래스들이 프로세스 간에 안전하게 전달되도록 보장합니다.
+# 즉, trust_remote_code=True로 로드된 모델들은 transformers_modules 캐시에서 동적으로 생성된 클래스를 사용합
 def maybe_register_config_serialize_by_value() -> None:
     """Try to register HF model configuration class to serialize by value
 
