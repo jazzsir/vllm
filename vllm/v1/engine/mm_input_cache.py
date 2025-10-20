@@ -30,7 +30,7 @@ from vllm.utils import is_list_of
 # (to perform mirrored caching). This cache size is set by the environment
 # variable VLLM_MM_INPUT_CACHE_GIB.
 
-
+# vLLM V1 엔진에서 멀티모달 입력 데이터의 효율적인 캐싱과 프로세스 간 통신 최적화를 담당하는 핵심 컴포넌트
 class MirroredProcessingCache:
 
     def __init__(self, model_config):

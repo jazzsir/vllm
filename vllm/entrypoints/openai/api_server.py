@@ -188,6 +188,7 @@ async def build_async_engine_client_from_engine_args(
 
         from vllm.v1.engine.async_llm import AsyncLLM
         async_llm: Optional[AsyncLLM] = None
+        # client_config에서 "client_index" 키에 해당하는 값을 가져오고, 값을 제거함
         client_index = client_config.pop(
             "client_index") if client_config else 0
         try:
